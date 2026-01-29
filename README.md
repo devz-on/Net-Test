@@ -3,6 +3,7 @@
 ## Package structure
 - `com.example.nettest.ui` - UI layer, activities, and ViewModels.
 - `com.example.nettest.service` - Foreground service scaffolding.
+- `com.example.nettest.vpn` - `MyVpnService` local-only `VpnService` placeholder.
 - `com.example.nettest.vpn` - `VpnService` implementation placeholder.
 - `com.example.nettest.overlay` - Overlay service scaffolding.
 - `com.example.nettest.domain` - Domain layer (use-cases, entities).
