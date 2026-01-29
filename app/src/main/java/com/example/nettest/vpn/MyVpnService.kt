@@ -3,7 +3,6 @@ package com.example.nettest.vpn
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
@@ -14,6 +13,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.app.NotificationCompat
 import java.io.FileInputStream
 import java.io.FileDescriptor
+import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -21,14 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MyVpnService : VpnService() {
     private val isRunning = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadExecutor()
+    private val packetBuffer = ArrayDeque<ByteArray>()
+    private val bufferLock = Any()
     private var tunInterface: ParcelFileDescriptor? = null
-    private val packetController = PacketController(
-        holdDurationMs = PACKET_HOLD_MS,
-        maxBufferedPackets = MAX_BUFFERED_PACKETS,
-        fastSequentialDelayMs = FAST_BURST_DELAY_MS
-    ) { _ ->
-        // Placeholder sink: packets are buffered and released without forwarding.
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -67,8 +62,6 @@ class MyVpnService : VpnService() {
             return
         }
 
-        packetController.start()
-
         tunInterface = Builder()
             .setSession("NetTest VPN")
             .addAddress("10.0.0.2", 32)
@@ -92,7 +85,7 @@ class MyVpnService : VpnService() {
                     val length = tryRead(inputStream, buffer)
                     if (length > 0) {
                         // Buffer packets without inspecting or forwarding payloads.
-                        packetController.enqueuePacket(buffer.copyOf(length))
+                        enqueuePacket(buffer.copyOf(length))
                     } else {
                         sleepBriefly()
                     }
@@ -109,7 +102,7 @@ class MyVpnService : VpnService() {
         }
         tunInterface?.close()
         tunInterface = null
-        packetController.stop()
+        clearBuffer()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -161,6 +154,21 @@ class MyVpnService : VpnService() {
         }
     }
 
+    private fun enqueuePacket(packet: ByteArray) {
+        synchronized(bufferLock) {
+            if (packetBuffer.size >= MAX_BUFFERED_PACKETS) {
+                packetBuffer.removeFirst()
+            }
+            packetBuffer.addLast(packet)
+        }
+    }
+
+    private fun clearBuffer() {
+        synchronized(bufferLock) {
+            packetBuffer.clear()
+        }
+    }
+
     private fun sleepBriefly() {
         try {
             TimeUnit.MILLISECONDS.sleep(IDLE_SLEEP_MS)
@@ -176,8 +184,6 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1001
         private const val MTU = 1500
         private const val MAX_BUFFERED_PACKETS = 256
-        private const val PACKET_HOLD_MS = 250L
-        private const val FAST_BURST_DELAY_MS = 10L
         private const val IDLE_SLEEP_MS = 50L
     }
 }
